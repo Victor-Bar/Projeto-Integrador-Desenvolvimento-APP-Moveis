@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack"
 import BlocoDeNotasScreen from "../screens/BlocoDeNotasScreen";
 import ContatosScreen from "../screens/ContatosScreen";
 import SOSScreen from "../screens/SOSScreen";
+import UserConfigurationScreen from "../screens/UserConfigurationScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -16,6 +17,7 @@ export default function(){
                 options={{ headerShown: true, title: "Contatos do SOS" }}
             />
             <Stack.Screen name="SOSScreen" component={SOSScreen} />
+            <Stack.Screen name="UserConfiguration" component={UserConfigurationScreen} />
         </Stack.Navigator>
     )
 }
