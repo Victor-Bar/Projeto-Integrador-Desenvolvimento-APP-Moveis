@@ -10,6 +10,12 @@ export default function SOSScreen({ navigation }) {
                 >
                     <Text style={ styles.CardConfigTitle }>Configuração</Text>
                 </TouchableOpacity>
+                       <TouchableOpacity
+                    onPress={() => navigation.navigate("Contatos")}
+                    style={[styles.BtnConfig, styles.BtnContatos]}
+                >
+                    <Text style={ styles.CardConfigTitle }>Contatos do SOS</Text>
+                </TouchableOpacity>
             </View>
 
             <View style={styles.BottomContent}>
@@ -54,6 +60,9 @@ const styles = {
         borderRadius: 14,
         justifyContent: "center",
         alignItems: "center",
+    },
+       BtnContatos: {
+        marginTop: 12,
     },
     BottomContent: {
         flex: 1,
