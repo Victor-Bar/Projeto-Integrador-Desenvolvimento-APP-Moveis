@@ -17,7 +17,11 @@ export default function(){
                 options={{ headerShown: true, title: "Contatos do SOS" }}
             />
             <Stack.Screen name="SOSScreen" component={SOSScreen} />
-            <Stack.Screen name="UserConfiguration" component={UserConfigurationScreen} />
+            <Stack.Screen
+                name="UserConfiguration"
+                component={UserConfigurationScreen}
+                options={{ headerShown: true, title: "Configuração" }}
+            />
         </Stack.Navigator>
     )
 }
