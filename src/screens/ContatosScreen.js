@@ -1,13 +1,15 @@
-import { useState } from "react";
-import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useState, useEffect } from "react";
+import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import ItemContato from "../components/ItemContato";
+import { API_URL } from "../config/api";
+
+const ID_USUARIO = 1;
 
 export default function ContatosScreen() {
-  const [contatos, setContatos] = useState([
-    { id: 1, nome: "Ana Paula", cpf: "", telefone: "(43) 99911-2233", endereco: "", nota: "Irmã" },
-    { id: 2, nome: "José Carlos", cpf: "", telefone: "(43) 99822-1144", endereco: "", nota: "Pai" },
-  ]);
-  const [proximoId, setProximoId] = useState(3);
+  const [contatos, setContatos] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erroLista, setErroLista] = useState(null);
+  const [enviando, setEnviando] = useState(false);
 
   const [nome, setNome] = useState("");
   const [cpf, setCpf] = useState("");
@@ -17,6 +19,26 @@ export default function ContatosScreen() {
 
   const [idEditando, setIdEditando] = useState(null);
   const [erro, setErro] = useState("");
+    async function getContatos() {
+    try {
+      setErroLista(null);
+      setCarregando(true);
+      const resposta = await fetch(`${API_URL}/contatos`);
+      if (!resposta.ok) {
+        throw new Error(`O servidor respondeu com erro: ${resposta.status}`);
+      }
+      const dados = await resposta.json();
+      setContatos(dados);
+    } catch (erro) {
+      setErroLista(`Erro ao carregar os contatos: ${erro.message}`);
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  useEffect(() => {
+    getContatos();
+  }, []);
 
   function limparFormulario() {
     setNome("");
@@ -28,27 +50,63 @@ export default function ContatosScreen() {
     setErro("");
   }
 
-  function salvar() {
-    if (nome === "" || telefone === "") {
+  async function salvar() {
+        const apenasNumerosTelefone = telefone.replace(/\D/g, "");
+    const apenasNumerosCpf = cpf.replace(/\D/g, "");
+
+    if (!nome.trim() || !telefone.trim()) {
       setErro("Preencha pelo menos o nome e o telefone.");
       return;
     }
-
-    if (idEditando === null) {
-      const novoContato = { id: proximoId, nome: nome, cpf: cpf, telefone: telefone, endereco: endereco, nota: nota };
-      setContatos([...contatos, novoContato]);
-      setProximoId(proximoId + 1);
-    } else {
-      setContatos(
-        contatos.map((contato) =>
-          contato.id === idEditando
-            ? { id: contato.id, nome: nome, cpf: cpf, telefone: telefone, endereco: endereco, nota: nota }
-            : contato
-        )
-      );
+    if (nome.trim().length < 3) {
+      setErro("O nome precisa ter pelo menos 3 letras.");
+      return;
+    }
+    if (/[0-9]/.test(nome)) {
+      setErro("O nome não pode ter números.");
+      return;
+    }
+    if (apenasNumerosTelefone.length < 10 || apenasNumerosTelefone.length > 11) {
+      setErro("O telefone precisa ter 10 ou 11 números, com DDD.");
+      return;
+    }
+    if (apenasNumerosCpf.length > 0 && apenasNumerosCpf.length !== 11) {
+      setErro("O CPF precisa ter 11 números.");
+      return;
+    
     }
 
-    limparFormulario();
+    setEnviando(true);
+
+    try {
+      const contato = { idUsuario: ID_USUARIO, nome, cpf, telefone, endereco, nota };
+      let resposta;
+
+      if (idEditando === null) {
+        resposta = await fetch(`${API_URL}/contatos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(contato),
+        });
+      } else {
+        resposta = await fetch(`${API_URL}/contatos/${idEditando}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(contato),
+        });
+      }
+
+      if (!resposta.ok) {
+        throw new Error(`O servidor respondeu com erro: ${resposta.status}`);
+      }
+
+      limparFormulario();
+      getContatos();
+    } catch (erro) {
+      setErro(`Erro ao salvar o contato: ${erro.message}`);
+    } finally {
+      setEnviando(false);
+    }
   }
 
   function editar(contato) {
@@ -60,30 +118,58 @@ export default function ContatosScreen() {
     setIdEditando(contato.id);
   }
 
-  function excluir(id) {
-    setContatos(contatos.filter((contato) => contato.id !== id));
-    if (id === idEditando) {
-      limparFormulario();
+  async function excluir(id) {
+    try {
+      const resposta = await fetch(`${API_URL}/contatos/${id}`, { method: "DELETE" });
+      if (!resposta.ok) {
+        throw new Error(`O servidor respondeu com erro: ${resposta.status}`);
+      }
+      if (id === idEditando) {
+        limparFormulario();
+      }
+      getContatos();
+    } catch (erro) {
+      setErro(`Erro ao excluir o contato: ${erro.message}`);
     }
   }
+  if (carregando) {
+    return (
+      <View style={estilos.centro}>
+        <ActivityIndicator size="large" />
+        <Text>Carregando os contatos...</Text>
+      </View>
+    );
+  }
 
+  if (erroLista) {
+    return (
+      <View style={estilos.centro}>
+        <Text style={estilos.erro}>{erroLista}</Text>
+        <TouchableOpacity style={estilos.botao} onPress={getContatos}>
+          <Text style={estilos.botaoTexto}>Tentar de novo</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
   return (
     <View style={estilos.container}>
       <View style={estilos.formulario}>
         <Text style={estilos.titulo}>{idEditando === null ? "Adicionar contato" : "Editar contato"}</Text>
 
         <TextInput style={estilos.input} placeholder="Nome *" value={nome} onChangeText={setNome} />
-        <TextInput
+           <TextInput
           style={estilos.input}
           placeholder="Telefone *"
           keyboardType="phone-pad"
+          maxLength={15}
           value={telefone}
           onChangeText={setTelefone}
         />
-        <TextInput
+             <TextInput
           style={estilos.input}
           placeholder="CPF"
           keyboardType="numeric"
+          maxLength={14}
           value={cpf}
           onChangeText={setCpf}
         />
@@ -93,7 +179,11 @@ export default function ContatosScreen() {
         <Text style={estilos.erro}>{erro}</Text>
 
         <TouchableOpacity style={estilos.botao} onPress={salvar}>
-          <Text style={estilos.botaoTexto}>{idEditando === null ? "Adicionar" : "Salvar alterações"}</Text>
+          {enviando ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={estilos.botaoTexto}>{idEditando === null ? "Adicionar" : "Salvar alterações"}</Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -118,6 +208,14 @@ const estilos = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F3F4F6",
     padding: 16,
+  },
+    centro: {
+    flex: 1,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    gap: 12,
   },
   formulario: {
     marginBottom: 8,
