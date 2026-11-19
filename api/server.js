@@ -37,6 +37,7 @@ function publicUser(user) {
         id: user.id,
         username: user.username,
         email: user.email,
+        address: user.address || '',
     };
 }
 
@@ -200,6 +201,7 @@ app.get('/admin', (req, res) => {
       <form class="form" id="user-form">
         <input name="username" placeholder="Usuário" autocomplete="username" required>
         <input name="email" type="email" placeholder="E-mail" autocomplete="email" required>
+        <input name="address" placeholder="Endereço" autocomplete="street-address">
         <input name="password" type="password" placeholder="Senha (mínimo 8 caracteres)" minlength="8" autocomplete="new-password">
         <p class="notice" id="user-modal-hint"></p>
         <p class="error" id="user-message" role="status"></p>
@@ -244,6 +246,11 @@ app.post('/api/users', (req, res) => {
     const username = typeof input.username === 'string' ? input.username.trim() : '';
     const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
     const password = typeof input.password === 'string' ? input.password : '';
+    const address = typeof input.address === 'string' ? input.address.trim() : '';
+
+    if (input.address !== undefined && typeof input.address !== 'string') {
+        return res.status(400).json({ error: 'O endereço informado é inválido.' });
+    }
 
     if (username.length < 3 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8) {
         return res.status(400).json({ error: 'Informe usuário (mínimo 3 caracteres), e-mail válido e senha (mínimo 8 caracteres).' });
@@ -261,6 +268,7 @@ app.post('/api/users', (req, res) => {
         id: crypto.randomUUID(),
         username,
         email,
+        address,
         passwordHash: hashPassword(password),
         contacts: [],
     };
@@ -280,13 +288,15 @@ app.put('/api/users/:userId', (req, res) => {
     if (
         (input.username !== undefined && typeof input.username !== 'string') ||
         (input.email !== undefined && typeof input.email !== 'string') ||
-        (input.password !== undefined && typeof input.password !== 'string')
+        (input.password !== undefined && typeof input.password !== 'string') ||
+        (input.address !== undefined && typeof input.address !== 'string')
     ) {
         return res.status(400).json({ error: 'Os dados do usuário são inválidos.' });
     }
 
     const username = input.username === undefined ? user.username : input.username.trim();
     const email = input.email === undefined ? user.email : input.email.trim().toLowerCase();
+    const address = input.address === undefined ? (user.address || '') : input.address.trim();
     const password = input.password || '';
     if (
         username.length < 3 ||
@@ -306,6 +316,7 @@ app.put('/api/users/:userId', (req, res) => {
 
     user.username = username;
     user.email = email;
+    user.address = address;
     if (password) {
         user.passwordHash = hashPassword(password);
     }

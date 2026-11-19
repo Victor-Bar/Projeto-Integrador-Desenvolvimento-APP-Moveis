@@ -56,6 +56,7 @@ function openUserModal(user = null) {
     saveUserButton.textContent = user ? 'Salvar alterações' : 'Criar usuário';
     userForm.elements.username.value = user?.username || '';
     userForm.elements.email.value = user?.email || '';
+    userForm.elements.address.value = user?.address || '';
     userForm.elements.password.required = !user;
     showModal(userModal);
     userForm.elements.username.focus();

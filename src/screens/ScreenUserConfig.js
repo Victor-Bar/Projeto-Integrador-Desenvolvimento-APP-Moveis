@@ -71,6 +71,11 @@ export default function() {
                 <View style={styles.Divider} />
                 <Text style={styles.Label}>E-mail</Text>
                 <Text style={styles.Value}>{currentUser?.email || '...'}</Text>
+                <View style={styles.Divider} />
+                <Text style={styles.Label}>Endereço</Text>
+                <Text style={styles.Value}>
+                    {currentUser ? (currentUser.address || 'Não informado') : '...'}
+                </Text>
             </View>
 
             <View style={styles.Card}>
