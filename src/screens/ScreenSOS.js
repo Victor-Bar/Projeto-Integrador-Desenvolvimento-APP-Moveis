@@ -5,12 +5,20 @@ import { useCallback, useState } from "react";
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ChevronLeft } from 'lucide-react-native';
+import { Accelerometer } from 'expo-sensors';
 
 export default function() {
     const { CurrentUser, CreateSOS } = useAPI();
     const navigation = useNavigation();
     const [loaded, setLoaded] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    function QuickExit() {
+        navigation.reset({
+            index: 0,
+            routes: [{ name: 'App' }],
+        });
+    }
 
     function GoBack() {
         if (navigation.canGoBack()) {
@@ -58,6 +66,28 @@ export default function() {
             checkAuthentication();
             return () => { active = false; };
         }, [CurrentUser, navigation])
+    );
+
+    useFocusEffect(
+        useCallback(() => {
+            let exited = false;
+            Accelerometer.setUpdateInterval(100);
+
+            const subscription = Accelerometer.addListener(({ x, y, z }) => {
+                const intensity = Math.sqrt((x * x) + (y * y) + (z * z));
+                const movementDetected = intensity > 1.4 || intensity < 0.7;
+
+                if (movementDetected && !exited) {
+                    exited = true;
+                    subscription.remove();
+                    QuickExit();
+                }
+            });
+
+            return () => {
+                subscription.remove();
+            };
+        }, [navigation])
     );
 
     if (!loaded) {
