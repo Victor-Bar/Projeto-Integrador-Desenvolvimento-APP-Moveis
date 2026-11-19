@@ -1,27 +1,25 @@
-import { createNativeStackNavigator } from "@react-navigation/native-stack"
-
-import BlocoDeNotasScreen from "../screens/BlocoDeNotasScreen";
-import ContatosScreen from "../screens/ContatosScreen";
-import SOSScreen from "../screens/SOSScreen";
-import UserConfigurationScreen from "../screens/UserConfigurationScreen";
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import ScreenApp from '../screens/ScreenApp';
+import ScreenNote from '../screens/ScreenNote';
+import ScreenLogin from '../screens/ScreenLogin';
+import ScreenSOS from '../screens/ScreenSOS';
+import ScreenContatos from '../screens/ScreenContatos';
+import ScreenUserConfig from '../screens/ScreenUserConfig';
 
 const Stack = createNativeStackNavigator();
 
-export default function(){
-    return(
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="BlocoDeNotas" component={BlocoDeNotasScreen} />
-            <Stack.Screen
-                name="Contatos"
-                component={ContatosScreen}
-                options={{ headerShown: true, title: "Contatos do SOS" }}
-            />
-            <Stack.Screen name="SOSScreen" component={SOSScreen} />
-            <Stack.Screen
-                name="UserConfiguration"
-                component={UserConfigurationScreen}
-                options={{ headerShown: true, title: "Configuração" }}
-            />
-        </Stack.Navigator>
+export default function() {
+    return (
+        <NavigationContainer>
+            <Stack.Navigator screenOptions={{headerShown: false}}>
+                <Stack.Screen name="App" component={ScreenApp} />
+                <Stack.Screen name="Note" component={ScreenNote} />
+                <Stack.Screen name="Login" component={ScreenLogin} />
+                <Stack.Screen name="SOS" component={ScreenSOS} />
+                <Stack.Screen name="Contatos" component={ScreenContatos} />
+                <Stack.Screen name="UserConfig" component={ScreenUserConfig} />
+            </Stack.Navigator>
+        </NavigationContainer>
     )
 }
