@@ -154,6 +154,11 @@ app.get('/admin', (req, res) => {
     .detail-row { padding: 10px 0; border-bottom: 1px solid #eceef1; overflow-wrap: anywhere; }
     .detail-row strong { display: block; margin-bottom: 4px; }
     .detail-nested { padding-left: 16px; }
+    .sos-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .sos-actions button { flex: 1; }
+    .sos-status-form { display: grid; gap: 12px; margin-top: 16px; }
+    .sos-status-form select, .sos-status-form textarea { width: 100%; font: inherit; border: 1px solid #dfe2e7; border-radius: 8px; padding: 10px; }
+    .sos-status-form textarea { min-height: 90px; resize: vertical; }
     [hidden] { display: none !important; }
     @media (max-width: 720px) { .dashboard { grid-template-columns: 1fr; } }
     @media (max-width: 480px) { body { padding: 16px 10px; } main { padding: 18px; } .record { align-items: flex-start; flex-direction: column; } }
@@ -423,6 +428,8 @@ app.post('/api/sos', authenticate, (req, res) => {
         id: crypto.randomUUID(),
         userId: user.id,
         createdAt: new Date().toISOString(),
+        status: 'Novo',
+        notes: '',
         caller: userDetails(user),
     };
 
@@ -438,12 +445,51 @@ app.get('/api/admin/sos', (req, res) => {
             const user = data.users.find(account => account.id === request.userId);
             return {
                 ...request,
+                status: request.status || 'Novo',
+                notes: request.notes || '',
                 caller: userDetails(request.caller || user || {}),
             };
         })
         .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
 
     return res.json({ sosRequests });
+});
+
+app.put('/api/admin/sos/:sosId', (req, res) => {
+    const allowedStatuses = ['Novo', 'Em atendimento', 'Resolvido'];
+    const status = req.body?.status;
+    const notes = req.body?.notes;
+
+    if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({ error: 'Status inválido.' });
+    }
+    if (notes !== undefined && typeof notes !== 'string') {
+        return res.status(400).json({ error: 'As observações são inválidas.' });
+    }
+
+    const data = readData();
+    const request = data.sosRequests.find(item => item.id === req.params.sosId);
+    if (!request) {
+        return res.status(404).json({ error: 'Chamado SOS não encontrado.' });
+    }
+
+    request.status = status;
+    if (notes !== undefined) request.notes = notes.trim();
+    request.updatedAt = new Date().toISOString();
+    writeData(data);
+    return res.json({ sosRequest: request });
+});
+
+app.delete('/api/admin/sos/:sosId', (req, res) => {
+    const data = readData();
+    const requestIndex = data.sosRequests.findIndex(item => item.id === req.params.sosId);
+    if (requestIndex === -1) {
+        return res.status(404).json({ error: 'Chamado SOS não encontrado.' });
+    }
+
+    data.sosRequests.splice(requestIndex, 1);
+    writeData(data);
+    return res.status(204).end();
 });
 
 app.listen(port, '0.0.0.0', () => {

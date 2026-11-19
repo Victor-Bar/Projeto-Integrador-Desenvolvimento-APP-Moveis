@@ -127,13 +127,31 @@ function renderSOSRequests(requests) {
     }
 
     requests.forEach(request => {
+        const record = document.createElement('div');
+        record.className = 'record';
+
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'sos-record';
         const name = request.caller?.username || request.userId || 'Usuário desconhecido';
-        button.textContent = `${formatDate(request.createdAt)} — ${name}`;
+        button.textContent = `${formatDate(request.createdAt)} — ${name} — ${request.status || 'Novo'}`;
         button.addEventListener('click', () => openSOSDetails(request));
-        sosList.appendChild(button);
+
+        const actions = document.createElement('div');
+        actions.className = 'record-actions';
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'secondary-button';
+        edit.textContent = 'Editar';
+        edit.addEventListener('click', () => openSOSDetails(request));
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = 'Excluir';
+        remove.addEventListener('click', () => deleteSOSRequest(request));
+        actions.append(edit, remove);
+
+        record.append(button, actions);
+        sosList.appendChild(record);
     });
 }
 
@@ -176,7 +194,72 @@ function openSOSDetails(request) {
     sosDetails.replaceChildren();
     appendDetails(sosDetails, 'Data e hora do chamado', formatDate(request.createdAt));
     appendDetails(sosDetails, 'Pessoa', request.caller || { id: request.userId });
+    appendDetails(sosDetails, 'Status atual', request.status || 'Novo');
+
+    const form = document.createElement('form');
+    form.className = 'sos-status-form';
+
+    const statusLabel = document.createElement('label');
+    statusLabel.textContent = 'Status';
+    const status = document.createElement('select');
+    ['Novo', 'Em atendimento', 'Resolvido'].forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        option.selected = value === (request.status || 'Novo');
+        status.appendChild(option);
+    });
+    statusLabel.appendChild(status);
+
+    const notesLabel = document.createElement('label');
+    notesLabel.textContent = 'Observações';
+    const notes = document.createElement('textarea');
+    notes.value = request.notes || '';
+    notesLabel.appendChild(notes);
+
+    const actions = document.createElement('div');
+    actions.className = 'sos-actions';
+    const save = document.createElement('button');
+    save.type = 'submit';
+    save.textContent = 'Salvar';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'secondary-button';
+    remove.textContent = 'Excluir';
+    remove.addEventListener('click', () => deleteSOSRequest(request));
+    actions.append(save, remove);
+
+    form.append(statusLabel, notesLabel, actions);
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        try {
+            await apiRequest(`/api/admin/sos/${encodeURIComponent(request.id)}`, {
+                method: 'PUT',
+                body: JSON.stringify({ status: status.value, notes: notes.value }),
+            });
+            hideModal(sosModal);
+            pageMessage.textContent = 'Chamado SOS atualizado.';
+            await loadSOSRequests();
+        } catch (error) {
+            pageMessage.textContent = error.message;
+        }
+    });
+
+    sosDetails.appendChild(form);
     showModal(sosModal);
+}
+
+async function deleteSOSRequest(request) {
+    if (!window.confirm('Excluir este chamado SOS?')) return;
+
+    try {
+        await apiRequest(`/api/admin/sos/${encodeURIComponent(request.id)}`, { method: 'DELETE' });
+        hideModal(sosModal);
+        pageMessage.textContent = 'Chamado SOS excluído.';
+        await loadSOSRequests();
+    } catch (error) {
+        pageMessage.textContent = error.message;
+    }
 }
 
 async function deleteUser(user) {
