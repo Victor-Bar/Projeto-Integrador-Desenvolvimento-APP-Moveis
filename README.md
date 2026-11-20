@@ -21,7 +21,7 @@ Aplicativo de apoio camuflado para mulheres em situação de violência domésti
 
 - *App:* React Native com Expo e React Navigation (Stack)
 - *API:* Node.js com Express
-- *Dados:* arquivo JSON (api/data.json), com uma coleção de usuárias (com seus contatos) e uma coleção de chamados SOS
+- *Dados:* PostgreSQL (`blocodenotas`), com tabelas para usuárias, contatos e chamados SOS
 
 ## Como rodar
 
@@ -37,6 +37,10 @@ npm start
 
 A API sobe em http://localhost:3000.
 
+Configure as credenciais do PostgreSQL no arquivo `api/.env` antes de iniciar. Há um modelo em `api/.env.example`.
+O usuário configurado precisa poder criar e excluir bancos de dados. **A cada inicialização, a API apaga e recria
+completamente o banco configurado em `PGDATABASE` (por padrão, `blocodenotas`); todos os dados anteriores são perdidos.**
+
 Em outro terminal, na raiz do projeto, o app:
 bash
 npm install
@@ -47,7 +51,7 @@ Aperte *w* para abrir no navegador ou escaneie o QR code com o Expo Go.
 > Para testar no celular, ajuste o IP do computador em src/configs/config.js (apiBaseUrl).
 
 ### Primeiro acesso
-Crie uma usuária pelo painel administrativo em http://localhost:3000/admin (botão *Adicionar*) e use esse usuário e senha no login do app.
+Crie uma usuária pelo painel administrativo em http://localhost:3000/admin (botão *Adicionar*) e use esse usuário e senha no login do app. Como o banco é recriado quando a API inicia, será necessário criar a usuária novamente depois de cada reinicialização.
 
 ## Rotas da API
 

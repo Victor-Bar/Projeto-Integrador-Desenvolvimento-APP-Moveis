@@ -37,7 +37,12 @@ export default function() {
                     <View style={styles.BrandIcon}>
                         <ShieldCheck color="#D62828" size={30} />
                     </View>
-                    <Text style={styles.Title}>Boas-vindas</Text>
+                    <View style={styles.HeaderRow}>
+                        <Text style={styles.Title}>Boas-vindas</Text>
+                        <View style={styles.ExpirationNotice}>
+                            <Text style={styles.ExpirationNoticeText}>O login expira em 1 ano</Text>
+                        </View>
+                    </View>
                     <Text style={styles.Subtitle}>Entre com seu usuário e senha.</Text>
 
                     <View style={styles.Form}>
@@ -97,16 +102,39 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         marginBottom: 20,
     },
+    HeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+    },
     Title: {
         color: '#20242B',
         fontSize: 28,
         fontWeight: '700',
+        flexShrink: 1,
     },
     Subtitle: {
         color: '#737985',
         fontSize: 15,
         marginTop: 7,
-        marginBottom: 26,
+        marginBottom: 16,
+    },
+    ExpirationNotice: {
+        maxWidth: '52%',
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderRadius: 16,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        flexShrink: 1,
+    },
+    ExpirationNoticeText: {
+        color: '#737985',
+        fontSize: 11,
+        fontWeight: '600',
+        textAlign: 'center',
     },
     Form: {
         padding: 20,

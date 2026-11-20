@@ -133,7 +133,7 @@ function renderSOSRequests(requests) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'sos-record';
-        const name = request.caller?.username || request.userId || 'Usuário desconhecido';
+        const name = request.caller?.username || 'Usuário desconhecido';
         button.textContent = `${formatDate(request.createdAt)} — ${name} — ${request.status || 'Novo'}`;
         button.addEventListener('click', () => openSOSDetails(request));
 
@@ -160,41 +160,103 @@ async function loadSOSRequests() {
     renderSOSRequests(sosRequests);
 }
 
-function appendDetails(container, key, value, depth = 0) {
-    if (/password|senha|hash/i.test(key)) return;
+function appendPersonField(container, label, value) {
+    const field = document.createElement('div');
+    field.className = 'sos-person-field';
 
-    const row = document.createElement('div');
-    row.className = `detail-row${depth ? ' detail-nested' : ''}`;
-    const label = document.createElement('strong');
-    label.textContent = key;
-    row.appendChild(label);
+    const fieldLabel = document.createElement('span');
+    fieldLabel.className = 'sos-person-label';
+    fieldLabel.textContent = label;
 
-    if (value && typeof value === 'object') {
-        const nested = document.createElement('div');
-        const entries = Array.isArray(value)
-            ? value.map((item, index) => [String(index + 1), item])
-            : Object.entries(value);
-        entries.forEach(([childKey, childValue]) => appendDetails(nested, childKey, childValue, depth + 1));
-        if (!entries.length) {
-            nested.textContent = '—';
-        }
-        row.appendChild(nested);
-    } else {
-        const text = document.createElement('span');
-        text.textContent = value === null || value === undefined || value === ''
-            ? '—'
-            : String(value);
-        row.appendChild(text);
+    const fieldValue = document.createElement('p');
+    fieldValue.className = 'sos-person-value';
+    fieldValue.textContent = value || 'Não informado';
+
+    field.append(fieldLabel, fieldValue);
+    container.appendChild(field);
+}
+
+function renderSOSContact(contact) {
+    const card = document.createElement('article');
+    card.className = 'sos-contact-card';
+
+    const name = document.createElement('h4');
+    name.className = 'sos-contact-name';
+    name.textContent = contact.name || 'Contato sem nome';
+    card.appendChild(name);
+
+    const phone = document.createElement('p');
+    phone.className = 'sos-contact-detail';
+    phone.textContent = contact.phone || 'Telefone não informado';
+    card.appendChild(phone);
+
+    if (contact.relationship) {
+        const relationship = document.createElement('p');
+        relationship.className = 'sos-contact-detail';
+        relationship.textContent = contact.relationship;
+        card.appendChild(relationship);
     }
 
-    container.appendChild(row);
+    return card;
 }
 
 function openSOSDetails(request) {
     sosDetails.replaceChildren();
-    appendDetails(sosDetails, 'Data e hora do chamado', formatDate(request.createdAt));
-    appendDetails(sosDetails, 'Pessoa', request.caller || { id: request.userId });
-    appendDetails(sosDetails, 'Status atual', request.status || 'Novo');
+    const caller = request.caller || {};
+    const contacts = Array.isArray(caller.contacts) ? caller.contacts : [];
+
+    const overview = document.createElement('section');
+    overview.className = 'sos-overview';
+
+    const overviewHeader = document.createElement('div');
+    overviewHeader.className = 'sos-overview-header';
+    const timeGroup = document.createElement('div');
+    const timeLabel = document.createElement('span');
+    timeLabel.className = 'sos-overview-label';
+    timeLabel.textContent = 'HORÁRIO DO CHAMADO';
+    const time = document.createElement('strong');
+    time.className = 'sos-overview-time';
+    time.textContent = formatDate(request.createdAt);
+    timeGroup.append(timeLabel, time);
+
+    const statusBadge = document.createElement('span');
+    statusBadge.className = 'sos-status-badge';
+    statusBadge.textContent = request.status || 'Novo';
+    overviewHeader.append(timeGroup, statusBadge);
+    overview.appendChild(overviewHeader);
+
+    const person = document.createElement('div');
+    person.className = 'sos-person-grid';
+    appendPersonField(person, 'Nome', caller.username || 'Usuário desconhecido');
+    appendPersonField(person, 'E-mail', caller.email);
+    appendPersonField(person, 'Endereço', caller.address);
+    overview.appendChild(person);
+    sosDetails.appendChild(overview);
+
+    const contactsSection = document.createElement('section');
+    contactsSection.className = 'sos-contacts-section';
+    const contactsHeader = document.createElement('div');
+    contactsHeader.className = 'sos-contacts-header';
+    const contactsTitle = document.createElement('h3');
+    contactsTitle.textContent = 'Contatos';
+    const contactsCount = document.createElement('span');
+    contactsCount.className = 'sos-contacts-count';
+    contactsCount.textContent = `${contacts.length} ${contacts.length === 1 ? 'contato' : 'contatos'}`;
+    contactsHeader.append(contactsTitle, contactsCount);
+
+    const contactsList = document.createElement('div');
+    contactsList.className = 'sos-contacts-list';
+    if (contacts.length) {
+        contacts.forEach(contact => contactsList.appendChild(renderSOSContact(contact)));
+    } else {
+        const empty = document.createElement('p');
+        empty.className = 'sos-contacts-empty';
+        empty.textContent = 'Nenhum contato cadastrado.';
+        contactsList.appendChild(empty);
+    }
+
+    contactsSection.append(contactsHeader, contactsList);
+    sosDetails.appendChild(contactsSection);
 
     const form = document.createElement('form');
     form.className = 'sos-status-form';

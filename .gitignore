@@ -32,6 +32,7 @@ data.json
 
 # local env files
 .env*.local
+/api/.env
 API/data.json
 
 # typescript

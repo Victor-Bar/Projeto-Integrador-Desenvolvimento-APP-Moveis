@@ -1,13 +1,16 @@
 const crypto = require('node:crypto');
-const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
+const dotenv = require('dotenv');
+
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const dataFile = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 const jwtSecret = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
-const tokenLifetimeSeconds = 7 * 24 * 60 * 60;
+const tokenLifetimeSeconds = 365 * 24 * 60 * 60;
+const { initializeDatabase, pool } = require('./database');
+const userColumns = 'id, username, email, address, password_hash AS "passwordHash"';
 
 if (!process.env.JWT_SECRET) {
     console.warn('JWT_SECRET não definido; usando uma chave temporária. Configure-a antes de publicar.');
@@ -15,22 +18,6 @@ if (!process.env.JWT_SECRET) {
 
 app.use(express.json({ limit: '1mb' }));
 app.use('/admin-assets', express.static(path.join(__dirname, 'public')));
-
-function readData() {
-    if (!fs.existsSync(dataFile)) {
-        return { users: [], sosRequests: [] };
-    }
-
-    const data = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-    if (!Array.isArray(data.users)) data.users = [];
-    if (!Array.isArray(data.sosRequests)) data.sosRequests = [];
-    return data;
-}
-
-function writeData(data) {
-    fs.mkdirSync(path.dirname(dataFile), { recursive: true });
-    fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
-}
 
 function publicUser(user) {
     return {
@@ -44,6 +31,35 @@ function publicUser(user) {
 function userDetails(user) {
     const { password, passwordHash, ...details } = user;
     return details;
+}
+
+function contactFromRow(row) {
+    return {
+        id: row.id,
+        name: row.name,
+        phone: row.phone,
+        relationship: row.relationship,
+    };
+}
+
+function sosRequestFromRow(row) {
+    return {
+        id: row.id,
+        userId: row.user_id,
+        createdAt: new Date(row.created_at).toISOString(),
+        status: row.status,
+        notes: row.notes,
+        ...(row.updated_at ? { updatedAt: new Date(row.updated_at).toISOString() } : {}),
+        caller: userDetails(row.caller || {}),
+    };
+}
+
+function isUuid(value) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isUniqueViolation(error) {
+    return error.code === '23505';
 }
 
 function normalizeContact(input) {
@@ -83,9 +99,10 @@ function createToken(user) {
     return `${header}.${payload}.${signature}`;
 }
 
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
     const authorization = req.headers.authorization || '';
     const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    let claims;
 
     try {
         const [header, payload, signature] = token.split('.');
@@ -100,18 +117,27 @@ function authenticate(req, res, next) {
             throw new Error('Invalid token signature');
         }
 
-        const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-        if (!claims.sub || claims.exp <= Math.floor(Date.now() / 1000)) {
+        claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+        if (
+            !claims ||
+            typeof claims.sub !== 'string' ||
+            typeof claims.exp !== 'number' ||
+            claims.exp <= Math.floor(Date.now() / 1000)
+        ) {
             throw new Error('Expired token');
         }
 
-        const { users } = readData();
-        req.user = users.find(user => user.id === claims.sub);
-        if (!req.user) throw new Error('Unknown user');
-        next();
     } catch {
-        res.status(401).json({ error: 'Sessão inválida ou expirada.' });
+        return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
     }
+
+    const { rows } = await pool.query(`SELECT ${userColumns} FROM users WHERE id = $1`, [claims.sub]);
+    if (!rows[0]) {
+        return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
+    }
+
+    req.user = rows[0];
+    return next();
 }
 
 app.get('/', (req, res) => res.redirect('/admin'));
@@ -151,9 +177,23 @@ app.get('/admin', (req, res) => {
     .modal.open { display: grid; }
     .modal-card { width: min(100%, 560px); max-height: 90vh; overflow: auto; padding: 24px; border-radius: 16px; background: white; box-shadow: 0 16px 48px rgba(0, 0, 0, .2); }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
-    .detail-row { padding: 10px 0; border-bottom: 1px solid #eceef1; overflow-wrap: anywhere; }
-    .detail-row strong { display: block; margin-bottom: 4px; }
-    .detail-nested { padding-left: 16px; }
+    .sos-overview { padding: 16px; border: 1px solid #eceef1; border-radius: 12px; background: #fafafa; }
+    .sos-overview-header, .sos-contacts-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .sos-overview-label, .sos-person-label { color: #737985; font-size: 12px; font-weight: 600; }
+    .sos-overview-time { display: block; margin-top: 5px; color: #20242b; font-size: 18px; }
+    .sos-status-badge { flex: 0 0 auto; padding: 6px 10px; border-radius: 999px; color: #a32121; background: #fce8e8; font-size: 12px; font-weight: 700; }
+    .sos-person-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+    .sos-person-field { min-width: 0; padding: 11px 12px; border: 1px solid #eceef1; border-radius: 10px; background: white; }
+    .sos-person-value { margin: 5px 0 0; color: #20242b; font-weight: 600; overflow-wrap: anywhere; }
+    .sos-contacts-section { margin-top: 16px; }
+    .sos-contacts-header { margin-bottom: 10px; }
+    .sos-contacts-header h3 { margin: 0; font-size: 16px; }
+    .sos-contacts-count { color: #737985; font-size: 13px; }
+    .sos-contacts-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-height: 220px; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 2px 2px; }
+    .sos-contact-card { min-width: 0; padding: 12px; border: 1px solid #eceef1; border-radius: 10px; background: white; }
+    .sos-contact-name { margin: 0; color: #20242b; font-size: 14px; }
+    .sos-contact-detail { margin: 6px 0 0; color: #737985; font-size: 13px; overflow-wrap: anywhere; }
+    .sos-contacts-empty { grid-column: 1 / -1; margin: 0; padding: 14px; border: 1px dashed #dfe2e7; border-radius: 10px; color: #737985; text-align: center; }
     .sos-actions { display: flex; gap: 8px; margin-top: 12px; }
     .sos-actions button { flex: 1; }
     .sos-status-form { display: grid; gap: 12px; margin-top: 16px; }
@@ -161,6 +201,7 @@ app.get('/admin', (req, res) => {
     .sos-status-form textarea { min-height: 90px; resize: vertical; }
     [hidden] { display: none !important; }
     @media (max-width: 720px) { .dashboard { grid-template-columns: 1fr; } }
+    @media (max-width: 480px) { .sos-person-grid, .sos-contacts-list { grid-template-columns: 1fr; } }
     @media (max-width: 480px) { body { padding: 16px 10px; } main { padding: 18px; } .record { align-items: flex-start; flex-direction: column; } }
   </style>
 </head>
@@ -231,14 +272,16 @@ app.get('/admin', (req, res) => {
 </html>`);
 });
 
-app.get('/api/users', (req, res) => {
-    const { users } = readData();
-    res.json({ users: users.map(publicUser) });
+app.get('/api/users', async (req, res) => {
+    const { rows } = await pool.query('SELECT id, username, email, address FROM users ORDER BY username');
+    res.json({ users: rows.map(publicUser) });
 });
 
-app.get('/api/users/:userId', (req, res) => {
-    const { users } = readData();
-    const user = users.find(account => account.id === req.params.userId);
+app.get('/api/users/:userId', async (req, res) => {
+    const { rows } = isUuid(req.params.userId)
+        ? await pool.query('SELECT id, username, email, address FROM users WHERE id = $1', [req.params.userId])
+        : { rows: [] };
+    const user = rows[0];
     if (!user) {
         return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
@@ -246,7 +289,7 @@ app.get('/api/users/:userId', (req, res) => {
     return res.json({ user: publicUser(user) });
 });
 
-app.post('/api/users', (req, res) => {
+app.post('/api/users', async (req, res) => {
     const input = req.body || {};
     const username = typeof input.username === 'string' ? input.username.trim() : '';
     const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
@@ -261,31 +304,33 @@ app.post('/api/users', (req, res) => {
         return res.status(400).json({ error: 'Informe usuário (mínimo 3 caracteres), e-mail válido e senha (mínimo 8 caracteres).' });
     }
 
-    const data = readData();
-    const duplicate = data.users.some(user =>
-        user.username.toLowerCase() === username.toLowerCase() || user.email === email
-    );
-    if (duplicate) {
-        return res.status(409).json({ error: 'Usuário ou e-mail já cadastrado.' });
-    }
-
     const user = {
         id: crypto.randomUUID(),
         username,
         email,
         address,
         passwordHash: hashPassword(password),
-        contacts: [],
     };
-    data.users.push(user);
-    writeData(data);
+    try {
+        await pool.query(
+            'INSERT INTO users (id, username, email, address, password_hash) VALUES ($1, $2, $3, $4, $5)',
+            [user.id, user.username, user.email, user.address, user.passwordHash]
+        );
+    } catch (error) {
+        if (isUniqueViolation(error)) {
+            return res.status(409).json({ error: 'Usuário ou e-mail já cadastrado.' });
+        }
+        throw error;
+    }
     return res.status(201).json({ user: publicUser(user) });
 });
 
-app.put('/api/users/:userId', (req, res) => {
+app.put('/api/users/:userId', async (req, res) => {
     const input = req.body || {};
-    const data = readData();
-    const user = data.users.find(account => account.id === req.params.userId);
+    const { rows } = isUuid(req.params.userId)
+        ? await pool.query(`SELECT ${userColumns} FROM users WHERE id = $1`, [req.params.userId])
+        : { rows: [] };
+    const user = rows[0];
     if (!user) {
         return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
@@ -311,42 +356,44 @@ app.put('/api/users/:userId', (req, res) => {
         return res.status(400).json({ error: 'Informe usuário (mínimo 3 caracteres), e-mail válido e senha (mínimo 8 caracteres).' });
     }
 
-    const duplicate = data.users.some(account =>
-        account.id !== user.id &&
-        (account.username.toLowerCase() === username.toLowerCase() || account.email === email)
-    );
-    if (duplicate) {
-        return res.status(409).json({ error: 'Usuário ou e-mail já cadastrado.' });
+    const passwordHash = password ? hashPassword(password) : user.passwordHash;
+    try {
+        const result = await pool.query(
+            `UPDATE users
+             SET username = $1, email = $2, address = $3, password_hash = $4
+             WHERE id = $5
+             RETURNING id, username, email, address`,
+            [username, email, address, passwordHash, user.id]
+        );
+        return res.json({ user: publicUser(result.rows[0]) });
+    } catch (error) {
+        if (isUniqueViolation(error)) {
+            return res.status(409).json({ error: 'Usuário ou e-mail já cadastrado.' });
+        }
+        throw error;
     }
-
-    user.username = username;
-    user.email = email;
-    user.address = address;
-    if (password) {
-        user.passwordHash = hashPassword(password);
-    }
-    writeData(data);
-    return res.json({ user: publicUser(user) });
 });
 
-app.delete('/api/users/:userId', (req, res) => {
-    const data = readData();
-    const userIndex = data.users.findIndex(account => account.id === req.params.userId);
-    if (userIndex === -1) {
+app.delete('/api/users/:userId', async (req, res) => {
+    const result = isUuid(req.params.userId)
+        ? await pool.query('DELETE FROM users WHERE id = $1', [req.params.userId])
+        : { rowCount: 0 };
+    if (!result.rowCount) {
         return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
 
-    data.users.splice(userIndex, 1);
-    writeData(data);
     return res.status(204).end();
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const input = req.body || {};
     const username = typeof input.username === 'string' ? input.username.trim() : '';
     const password = typeof input.password === 'string' ? input.password : '';
-    const { users } = readData();
-    const user = users.find(account => account.username.toLowerCase() === username.toLowerCase());
+    const { rows } = await pool.query(
+        `SELECT ${userColumns} FROM users WHERE LOWER(username) = LOWER($1)`,
+        [username]
+    );
+    const user = rows[0];
 
     if (!user || !verifyPassword(password, user.passwordHash)) {
         return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
@@ -359,12 +406,22 @@ app.get('/api/me', authenticate, (req, res) => {
     res.json({ user: publicUser(req.user) });
 });
 
-app.get('/api/contacts', authenticate, (req, res) => {
-    res.json({ contacts: req.user.contacts || [] });
+app.get('/api/contacts', authenticate, async (req, res) => {
+    const { rows } = await pool.query(
+        'SELECT id, name, phone, relationship FROM contacts WHERE user_id = $1 ORDER BY created_at, id',
+        [req.user.id]
+    );
+    res.json({ contacts: rows.map(contactFromRow) });
 });
 
-app.get('/api/contacts/:contactId', authenticate, (req, res) => {
-    const contact = (req.user.contacts || []).find(item => String(item.id) === req.params.contactId);
+app.get('/api/contacts/:contactId', authenticate, async (req, res) => {
+    const { rows } = isUuid(req.params.contactId)
+        ? await pool.query(
+            'SELECT id, name, phone, relationship FROM contacts WHERE id = $1 AND user_id = $2',
+            [req.params.contactId, req.user.id]
+        )
+        : { rows: [] };
+    const contact = rows[0] ? contactFromRow(rows[0]) : null;
     if (!contact) {
         return res.status(404).json({ error: 'Contato não encontrado.' });
     }
@@ -372,90 +429,97 @@ app.get('/api/contacts/:contactId', authenticate, (req, res) => {
     return res.json({ contact });
 });
 
-app.post('/api/contacts', authenticate, (req, res) => {
+app.post('/api/contacts', authenticate, async (req, res) => {
     const input = normalizeContact(req.body);
     if (!input) {
         return res.status(400).json({ error: 'Os dados do contato são inválidos.' });
     }
 
-    const data = readData();
-    const user = data.users.find(account => account.id === req.user.id);
     const contact = { id: crypto.randomUUID(), ...input };
-    user.contacts = [...(user.contacts || []), contact];
-    writeData(data);
-    return res.status(201).json({ contact, contacts: user.contacts });
+    await pool.query(
+        'INSERT INTO contacts (id, user_id, name, phone, relationship) VALUES ($1, $2, $3, $4, $5)',
+        [contact.id, req.user.id, contact.name, contact.phone, contact.relationship]
+    );
+    const { rows } = await pool.query(
+        'SELECT id, name, phone, relationship FROM contacts WHERE user_id = $1 ORDER BY created_at, id',
+        [req.user.id]
+    );
+    return res.status(201).json({ contact, contacts: rows.map(contactFromRow) });
 });
 
-app.put('/api/contacts/:contactId', authenticate, (req, res) => {
+app.put('/api/contacts/:contactId', authenticate, async (req, res) => {
     const input = normalizeContact(req.body);
     if (!input) {
         return res.status(400).json({ error: 'Os dados do contato são inválidos.' });
     }
 
-    const data = readData();
-    const user = data.users.find(account => account.id === req.user.id);
-    const contacts = user.contacts || [];
-    const index = contacts.findIndex(item => String(item.id) === req.params.contactId);
-    if (index === -1) {
+    const result = isUuid(req.params.contactId)
+        ? await pool.query(
+            `UPDATE contacts SET name = $1, phone = $2, relationship = $3
+             WHERE id = $4 AND user_id = $5
+             RETURNING id, name, phone, relationship`,
+            [input.name, input.phone, input.relationship, req.params.contactId, req.user.id]
+        )
+        : { rows: [] };
+    if (!result.rows[0]) {
         return res.status(404).json({ error: 'Contato não encontrado.' });
     }
 
-    const contact = { ...contacts[index], ...input };
-    contacts[index] = contact;
-    user.contacts = contacts;
-    writeData(data);
+    const contact = contactFromRow(result.rows[0]);
+    const { rows } = await pool.query(
+        'SELECT id, name, phone, relationship FROM contacts WHERE user_id = $1 ORDER BY created_at, id',
+        [req.user.id]
+    );
+    const contacts = rows.map(contactFromRow);
     return res.json({ contact, contacts });
 });
 
-app.delete('/api/contacts/:contactId', authenticate, (req, res) => {
-    const data = readData();
-    const user = data.users.find(account => account.id === req.user.id);
-    const contacts = user.contacts || [];
-    const filteredContacts = contacts.filter(item => String(item.id) !== req.params.contactId);
-    if (filteredContacts.length === contacts.length) {
+app.delete('/api/contacts/:contactId', authenticate, async (req, res) => {
+    const result = isUuid(req.params.contactId)
+        ? await pool.query('DELETE FROM contacts WHERE id = $1 AND user_id = $2', [req.params.contactId, req.user.id])
+        : { rowCount: 0 };
+    if (!result.rowCount) {
         return res.status(404).json({ error: 'Contato não encontrado.' });
     }
 
-    user.contacts = filteredContacts;
-    writeData(data);
+    const { rows } = await pool.query(
+        'SELECT id, name, phone, relationship FROM contacts WHERE user_id = $1 ORDER BY created_at, id',
+        [req.user.id]
+    );
+    const filteredContacts = rows.map(contactFromRow);
     return res.json({ contacts: filteredContacts });
 });
 
-app.post('/api/sos', authenticate, (req, res) => {
-    const data = readData();
-    const user = data.users.find(account => account.id === req.user.id);
-    const request = {
-        id: crypto.randomUUID(),
-        userId: user.id,
-        createdAt: new Date().toISOString(),
-        status: 'Novo',
-        notes: '',
-        caller: userDetails(user),
+app.post('/api/sos', authenticate, async (req, res) => {
+    const id = crypto.randomUUID();
+    const { rows: contactRows } = await pool.query(
+        'SELECT id, name, phone, relationship FROM contacts WHERE user_id = $1 ORDER BY created_at, id',
+        [req.user.id]
+    );
+    const caller = {
+        ...userDetails(req.user),
+        contacts: contactRows.map(contactFromRow),
     };
-
-    data.sosRequests.push(request);
-    writeData(data);
-    return res.status(201).json({ sosRequest: { id: request.id, createdAt: request.createdAt } });
+    const { rows } = await pool.query(
+        `INSERT INTO sos_requests (id, user_id, caller)
+         VALUES ($1, $2, $3)
+         RETURNING id, created_at`,
+        [id, req.user.id, JSON.stringify(caller)]
+    );
+    return res.status(201).json({
+        sosRequest: { id: rows[0].id, createdAt: new Date(rows[0].created_at).toISOString() },
+    });
 });
 
-app.get('/api/admin/sos', (req, res) => {
-    const data = readData();
-    const sosRequests = data.sosRequests
-        .map(request => {
-            const user = data.users.find(account => account.id === request.userId);
-            return {
-                ...request,
-                status: request.status || 'Novo',
-                notes: request.notes || '',
-                caller: userDetails(request.caller || user || {}),
-            };
-        })
-        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
-
+app.get('/api/admin/sos', async (req, res) => {
+    const { rows } = await pool.query(
+        'SELECT id, user_id, caller, created_at, status, notes, updated_at FROM sos_requests ORDER BY created_at DESC'
+    );
+    const sosRequests = rows.map(sosRequestFromRow);
     return res.json({ sosRequests });
 });
 
-app.put('/api/admin/sos/:sosId', (req, res) => {
+app.put('/api/admin/sos/:sosId', async (req, res) => {
     const allowedStatuses = ['Novo', 'Em atendimento', 'Resolvido'];
     const status = req.body?.status;
     const notes = req.body?.notes;
@@ -467,31 +531,50 @@ app.put('/api/admin/sos/:sosId', (req, res) => {
         return res.status(400).json({ error: 'As observações são inválidas.' });
     }
 
-    const data = readData();
-    const request = data.sosRequests.find(item => item.id === req.params.sosId);
-    if (!request) {
+    const result = isUuid(req.params.sosId)
+        ? await pool.query(
+            `UPDATE sos_requests
+             SET status = $1, notes = COALESCE($2, notes), updated_at = NOW()
+             WHERE id = $3
+             RETURNING id, user_id, caller, created_at, status, notes, updated_at`,
+            [status, notes === undefined ? null : notes.trim(), req.params.sosId]
+        )
+        : { rows: [] };
+    if (!result.rows[0]) {
         return res.status(404).json({ error: 'Chamado SOS não encontrado.' });
     }
 
-    request.status = status;
-    if (notes !== undefined) request.notes = notes.trim();
-    request.updatedAt = new Date().toISOString();
-    writeData(data);
-    return res.json({ sosRequest: request });
+    return res.json({ sosRequest: sosRequestFromRow(result.rows[0]) });
 });
 
-app.delete('/api/admin/sos/:sosId', (req, res) => {
-    const data = readData();
-    const requestIndex = data.sosRequests.findIndex(item => item.id === req.params.sosId);
-    if (requestIndex === -1) {
+app.delete('/api/admin/sos/:sosId', async (req, res) => {
+    const result = isUuid(req.params.sosId)
+        ? await pool.query('DELETE FROM sos_requests WHERE id = $1', [req.params.sosId])
+        : { rowCount: 0 };
+    if (!result.rowCount) {
         return res.status(404).json({ error: 'Chamado SOS não encontrado.' });
     }
 
-    data.sosRequests.splice(requestIndex, 1);
-    writeData(data);
     return res.status(204).end();
 });
 
-app.listen(port, '0.0.0.0', () => {
-    console.log(`API disponível em http://localhost:${port} (admin: /admin)`);
+app.use((error, req, res, next) => {
+    console.error('Erro ao processar requisição:', error);
+    if (res.headersSent) {
+        return next(error);
+    }
+    return res.status(500).json({ error: 'Erro interno do servidor.' });
+});
+
+async function start() {
+    await initializeDatabase();
+    app.listen(port, '0.0.0.0', () => {
+        console.log(`API disponível em http://localhost:${port} (admin: /admin)`);
+    });
+}
+
+start().catch(async error => {
+    console.error('Não foi possível iniciar a API:', error);
+    await pool.end();
+    process.exitCode = 1;
 });
