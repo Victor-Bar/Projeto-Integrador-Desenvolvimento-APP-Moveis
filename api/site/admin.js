@@ -123,6 +123,8 @@ module.exports = function adminPage() {
       </div>
     </section>
   </div>
+  <script src="/admin-assets/UsersService.js" defer></script>
+  <script src="/admin-assets/SOSService.js" defer></script>
   <script src="/admin-assets/admin.js" defer></script>
 </body>
 </html>`;

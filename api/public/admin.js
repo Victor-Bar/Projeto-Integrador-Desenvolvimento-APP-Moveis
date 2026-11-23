@@ -13,23 +13,6 @@ const sosModal = document.getElementById('sos-modal');
 const sosDetails = document.getElementById('sos-details');
 let editingUserId = null;
 
-async function apiRequest(path, options = {}) {
-    const response = await fetch(path, {
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...options.headers,
-        },
-    });
-    const body = response.status === 204 ? null : await response.json();
-
-    if (!response.ok) {
-        throw new Error(body?.error || 'Não foi possível concluir a solicitação.');
-    }
-
-    return body;
-}
-
 function formatDate(value) {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Data indisponível' : date.toLocaleString('pt-BR');
@@ -110,7 +93,7 @@ function renderUsers(users) {
 }
 
 async function loadUsers() {
-    const { users } = await apiRequest('/api/users');
+    const { users } = await window.UsersService.list();
     renderUsers(users);
 }
 
@@ -156,7 +139,7 @@ function renderSOSRequests(requests) {
 }
 
 async function loadSOSRequests() {
-    const { sosRequests } = await apiRequest('/api/admin/sos');
+    const { sosRequests } = await window.SOSService.list();
     renderSOSRequests(sosRequests);
 }
 
@@ -295,10 +278,7 @@ function openSOSDetails(request) {
     form.addEventListener('submit', async event => {
         event.preventDefault();
         try {
-            await apiRequest(`/api/admin/sos/${encodeURIComponent(request.id)}`, {
-                method: 'PUT',
-                body: JSON.stringify({ status: status.value, notes: notes.value }),
-            });
+            await window.SOSService.update(request.id, status.value, notes.value);
             hideModal(sosModal);
             pageMessage.textContent = 'Chamado SOS atualizado.';
             await loadSOSRequests();
@@ -315,7 +295,7 @@ async function deleteSOSRequest(request) {
     if (!window.confirm('Excluir este chamado SOS?')) return;
 
     try {
-        await apiRequest(`/api/admin/sos/${encodeURIComponent(request.id)}`, { method: 'DELETE' });
+        await window.SOSService.delete(request.id);
         hideModal(sosModal);
         pageMessage.textContent = 'Chamado SOS excluído.';
         await loadSOSRequests();
@@ -328,7 +308,7 @@ async function deleteUser(user) {
     if (!window.confirm(`Excluir o usuário ${user.username}?`)) return;
 
     try {
-        await apiRequest(`/api/users/${encodeURIComponent(user.id)}`, { method: 'DELETE' });
+        await window.UsersService.delete(user.id);
         pageMessage.textContent = 'Usuário excluído.';
         await loadUsers();
     } catch (error) {
@@ -382,13 +362,11 @@ userForm.addEventListener('submit', async event => {
     }
 
     try {
-        await apiRequest(
-            isEditing ? `/api/users/${encodeURIComponent(userId)}` : '/api/users',
-            {
-                method: isEditing ? 'PUT' : 'POST',
-                body: JSON.stringify(values),
-            }
-        );
+        if (isEditing) {
+            await window.UsersService.update(userId, values);
+        } else {
+            await window.UsersService.create(values);
+        }
         closeUserModal();
         pageMessage.textContent = isEditing ? 'Usuário atualizado.' : 'Usuário criado.';
         await loadUsers();
