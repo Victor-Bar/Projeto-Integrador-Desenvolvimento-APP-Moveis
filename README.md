@@ -82,7 +82,10 @@ Crie uma usuária pelo painel administrativo em http://localhost:3000/admin (bot
 
 
 api/                 → back-end (Express)
-  server.js          → rotas da API e painel administrativo
+  server.js          → configuração e inicialização da API
+  endpoints/         → rotas separadas por recurso
+  site/admin.js      → HTML do painel administrativo
+  services/          → uma consulta SQL por módulo
   public/admin.js    → script do painel
 src/
   screens/           → telas do app (notas, SOS, contatos, configuração, login)
